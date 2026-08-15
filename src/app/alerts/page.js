@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   Bell,
@@ -17,60 +17,15 @@ import {
 
 import AppShell from "../../components/AppShell";
 
-const initialNotifications = [
-  {
-    id: 1,
-    type: "outage",
-    title: "Power outage reported",
-    message:
-      "A new outage has been reported in Akobo, Ibadan. Several users in the area have confirmed the issue.",
-    location: "Akobo, Ibadan",
-    time: "12 minutes ago",
-    unread: true,
-  },
-  {
-    id: 2,
-    type: "restored",
-    title: "Power has been restored",
-    message:
-      "Electricity supply has been restored in Bodija after a reported outage.",
-    location: "Bodija, Ibadan",
-    time: "48 minutes ago",
-    unread: true,
-  },
-  {
-    id: 3,
-    type: "warning",
-    title: "Multiple reports detected",
-    message:
-      "Nepa Tracker detected several reports from Mokola within the last hour.",
-    location: "Mokola, Ibadan",
-    time: "1 hour ago",
-    unread: true,
-  },
-  {
-    id: 4,
-    type: "outage",
-    title: "Outage update",
-    message:
-      "The outage affecting Challenge is still being monitored by the community.",
-    location: "Challenge, Ibadan",
-    time: "2 hours ago",
-    unread: false,
-  },
-  {
-    id: 5,
-    type: "system",
-    title: "Weekly report is ready",
-    message:
-      "Your weekly electricity activity summary is now available in Analytics.",
-    location: "Your account",
-    time: "Yesterday",
-    unread: false,
-  },
-];
+const REPORTS_STORAGE_KEY = "nepaReports";
+const ALERTS_STORAGE_KEY = "nepaAlerts";
+const SETTINGS_STORAGE_KEY = "nepaAlertSettings";
 
-const alertSettings = [
+/* =========================================================
+   DEFAULT ALERT SETTINGS
+========================================================= */
+
+const defaultSettings = [
   {
     id: "outages",
     title: "Power outage alerts",
@@ -96,6 +51,122 @@ const alertSettings = [
     enabled: false,
   },
 ];
+
+/* =========================================================
+   FALLBACK NOTIFICATIONS
+   Used only when there are no report notifications yet.
+========================================================= */
+
+const defaultNotifications = [
+  {
+    id: "default-1",
+    type: "outage",
+    title: "Power outage reported",
+    message:
+      "A new outage has been reported in Akobo, Ibadan. Several users in the area have confirmed the issue.",
+    location: "Akobo, Ibadan",
+    time: "12 minutes ago",
+    unread: true,
+    source: "system",
+  },
+  {
+    id: "default-2",
+    type: "restored",
+    title: "Power has been restored",
+    message:
+      "Electricity supply has been restored in Bodija after a reported outage.",
+    location: "Bodija, Ibadan",
+    time: "48 minutes ago",
+    unread: true,
+    source: "system",
+  },
+  {
+    id: "default-3",
+    type: "warning",
+    title: "Multiple reports detected",
+    message:
+      "Nepa Tracker detected several reports from Mokola within the last hour.",
+    location: "Mokola, Ibadan",
+    time: "1 hour ago",
+    unread: true,
+    source: "system",
+  },
+];
+
+/* =========================================================
+   HELPERS
+========================================================= */
+
+function getNotificationType(report) {
+  if (
+    report.statusType === "restored" ||
+    report.status === "Restored" ||
+    report.status === "Power Restored"
+  ) {
+    return "restored";
+  }
+
+  if (
+    report.statusType === "pending" ||
+    report.status === "Pending" ||
+    report.status === "Low Voltage"
+  ) {
+    return "warning";
+  }
+
+  if (
+    report.statusType === "outage" ||
+    report.status === "Outage" ||
+    report.status === "Power Outage"
+  ) {
+    return "outage";
+  }
+
+  return "system";
+}
+
+function createNotificationFromReport(report) {
+  const type = getNotificationType(report);
+
+  let title = "Power activity reported";
+  let message = "A new electricity report has been submitted.";
+
+  if (type === "outage") {
+    title = "Power outage reported";
+
+    message = `A power outage has been reported in ${
+      report.location || "your area"
+    }. Community members can now see this update.`;
+  }
+
+  if (type === "restored") {
+    title = "Power has been restored";
+
+    message = `Electricity supply has been restored in ${
+      report.location || "your area"
+    }.`;
+  }
+
+  if (type === "warning") {
+    title = "Power issue reported";
+
+    message = `A power issue has been reported in ${
+      report.location || "your area"
+    } and is currently awaiting confirmation.`;
+  }
+
+  return {
+    id: `report-${report.id}`,
+    type,
+    title,
+    message,
+    location: report.location || "Unknown location",
+    time: report.time || "Recently",
+    unread: true,
+    source: "report",
+    reportId: report.id,
+  };
+}
 
 function NotificationIcon({ type }) {
   if (type === "restored") {
@@ -129,53 +200,369 @@ function notificationBackground(type) {
   return "bg-red-50";
 }
 
-export default function AlertsPage() {
-  const [notifications, setNotifications] = useState(initialNotifications);
+/* =========================================================
+   ALERTS PAGE
+========================================================= */
 
-  const [settings, setSettings] = useState(alertSettings);
+export default function AlertsPage() {
+  const [notifications, setNotifications] = useState([]);
+  const [settings, setSettings] = useState(defaultSettings);
+  const [reports, setReports] = useState([]);
+
+  /* =======================================================
+     LOAD REPORTS + ALERTS + SETTINGS
+  ======================================================= */
+
+  useEffect(() => {
+    try {
+      /* ---------------- REPORTS ---------------- */
+
+      const savedReports = localStorage.getItem(REPORTS_STORAGE_KEY);
+
+      let parsedReports = [];
+
+      if (savedReports) {
+        const data = JSON.parse(savedReports);
+
+        if (Array.isArray(data)) {
+          parsedReports = data;
+        }
+      }
+
+      setReports(parsedReports);
+
+      /* ---------------- SETTINGS ---------------- */
+
+      const savedSettings = localStorage.getItem(SETTINGS_STORAGE_KEY);
+
+      if (savedSettings) {
+        const parsedSettings = JSON.parse(savedSettings);
+
+        if (Array.isArray(parsedSettings)) {
+          setSettings(parsedSettings);
+        } else {
+          localStorage.setItem(
+            SETTINGS_STORAGE_KEY,
+            JSON.stringify(defaultSettings),
+          );
+        }
+      } else {
+        localStorage.setItem(
+          SETTINGS_STORAGE_KEY,
+          JSON.stringify(defaultSettings),
+        );
+      }
+
+      /* ---------------- EXISTING ALERTS ---------------- */
+
+      const savedAlerts = localStorage.getItem(ALERTS_STORAGE_KEY);
+
+      let storedAlerts = [];
+
+      if (savedAlerts) {
+        const parsedAlerts = JSON.parse(savedAlerts);
+
+        if (Array.isArray(parsedAlerts)) {
+          storedAlerts = parsedAlerts;
+        }
+      }
+
+      /* ---------------- CREATE ALERTS FROM REPORTS ---------------- */
+
+      const reportNotifications = parsedReports.map(
+        createNotificationFromReport,
+      );
+
+      /*
+       * Preserve read/delete state from previously saved alerts.
+       */
+      const existingAlertMap = new Map(
+        storedAlerts.map((alert) => [String(alert.id), alert]),
+      );
+
+      const mergedReportNotifications = reportNotifications.map(
+        (notification) => {
+          const existing = existingAlertMap.get(String(notification.id));
+
+          if (existing) {
+            return {
+              ...notification,
+              unread: existing.unread,
+            };
+          }
+
+          return notification;
+        },
+      );
+
+      /*
+       * Keep non-report/system notifications.
+       */
+      const systemNotifications = storedAlerts.filter(
+        (alert) => alert.source !== "report",
+      );
+
+      let finalNotifications = [
+        ...mergedReportNotifications,
+        ...systemNotifications,
+      ];
+
+      /*
+       * If there is no report data and no saved alerts,
+       * show the beautiful default alerts.
+       */
+      if (finalNotifications.length === 0) {
+        finalNotifications = defaultNotifications;
+      }
+
+      setNotifications(finalNotifications);
+
+      localStorage.setItem(
+        ALERTS_STORAGE_KEY,
+        JSON.stringify(finalNotifications),
+      );
+    } catch (error) {
+      console.error("Unable to load alerts:", error);
+
+      setNotifications(defaultNotifications);
+      setSettings(defaultSettings);
+    }
+  }, []);
+
+  /* =======================================================
+     LISTEN FOR REPORT CHANGES
+  ======================================================= */
+
+  useEffect(() => {
+    const handleStorageChange = (event) => {
+      /*
+       * REPORTS UPDATED
+       */
+      if (event.key === REPORTS_STORAGE_KEY) {
+        try {
+          const updatedReports = event.newValue
+            ? JSON.parse(event.newValue)
+            : [];
+
+          if (!Array.isArray(updatedReports)) {
+            return;
+          }
+
+          setReports(updatedReports);
+
+          setNotifications((currentNotifications) => {
+            const existingAlertMap = new Map(
+              currentNotifications.map((alert) => [String(alert.id), alert]),
+            );
+
+            const newReportNotifications = updatedReports.map(
+              createNotificationFromReport,
+            );
+
+            const mergedNotifications = newReportNotifications.map(
+              (notification) => {
+                const existing = existingAlertMap.get(String(notification.id));
+
+                if (existing) {
+                  return {
+                    ...notification,
+                    unread: existing.unread,
+                  };
+                }
+
+                return notification;
+              },
+            );
+
+            const systemNotifications = currentNotifications.filter(
+              (alert) => alert.source !== "report",
+            );
+
+            const updatedNotifications = [
+              ...mergedNotifications,
+              ...systemNotifications,
+            ];
+
+            localStorage.setItem(
+              ALERTS_STORAGE_KEY,
+              JSON.stringify(updatedNotifications),
+            );
+
+            return updatedNotifications;
+          });
+        } catch (error) {
+          console.error("Unable to update alerts from reports:", error);
+        }
+      }
+
+      /*
+       * ALERTS UPDATED
+       */
+      if (event.key === ALERTS_STORAGE_KEY) {
+        try {
+          const updatedAlerts = event.newValue
+            ? JSON.parse(event.newValue)
+            : [];
+
+          if (Array.isArray(updatedAlerts)) {
+            setNotifications(updatedAlerts);
+          }
+        } catch (error) {
+          console.error("Unable to update notifications:", error);
+        }
+      }
+
+      /*
+       * SETTINGS UPDATED
+       */
+      if (event.key === SETTINGS_STORAGE_KEY) {
+        try {
+          const updatedSettings = event.newValue
+            ? JSON.parse(event.newValue)
+            : [];
+
+          if (Array.isArray(updatedSettings)) {
+            setSettings(updatedSettings);
+          }
+        } catch (error) {
+          console.error("Unable to update alert settings:", error);
+        }
+      }
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+
+    return () => {
+      window.removeEventListener("storage", handleStorageChange);
+    };
+  }, []);
+
+  /* =======================================================
+     UNREAD COUNT
+  ======================================================= */
 
   const unreadCount = useMemo(
     () => notifications.filter((notification) => notification.unread).length,
     [notifications],
   );
 
+  /* =======================================================
+     OUTAGE ALERT COUNT
+  ======================================================= */
+
+  const outageAlertCount = useMemo(
+    () =>
+      notifications.filter(
+        (notification) => notification.type === "outage" && notification.unread,
+      ).length,
+    [notifications],
+  );
+
+  /* =======================================================
+     RESTORATION COUNT
+  ======================================================= */
+
+  const restorationCount = useMemo(
+    () =>
+      notifications.filter((notification) => notification.type === "restored")
+        .length,
+    [notifications],
+  );
+
+  /* =======================================================
+     MARK ONE AS READ
+  ======================================================= */
+
   const markAsRead = (id) => {
-    setNotifications((current) =>
-      current.map((notification) =>
+    setNotifications((current) => {
+      const updatedNotifications = current.map((notification) =>
         notification.id === id
-          ? { ...notification, unread: false }
+          ? {
+              ...notification,
+              unread: false,
+            }
           : notification,
-      ),
-    );
+      );
+
+      localStorage.setItem(
+        ALERTS_STORAGE_KEY,
+        JSON.stringify(updatedNotifications),
+      );
+
+      return updatedNotifications;
+    });
   };
+
+  /* =======================================================
+     MARK ALL AS READ
+  ======================================================= */
 
   const markAllAsRead = () => {
-    setNotifications((current) =>
-      current.map((notification) => ({
+    setNotifications((current) => {
+      const updatedNotifications = current.map((notification) => ({
         ...notification,
         unread: false,
-      })),
-    );
+      }));
+
+      localStorage.setItem(
+        ALERTS_STORAGE_KEY,
+        JSON.stringify(updatedNotifications),
+      );
+
+      return updatedNotifications;
+    });
   };
+
+  /* =======================================================
+     DELETE NOTIFICATION
+  ======================================================= */
 
   const removeNotification = (id) => {
-    setNotifications((current) =>
-      current.filter((notification) => notification.id !== id),
-    );
+    setNotifications((current) => {
+      const updatedNotifications = current.filter(
+        (notification) => notification.id !== id,
+      );
+
+      localStorage.setItem(
+        ALERTS_STORAGE_KEY,
+        JSON.stringify(updatedNotifications),
+      );
+
+      return updatedNotifications;
+    });
   };
 
+  /* =======================================================
+     TOGGLE SETTING
+  ======================================================= */
+
   const toggleSetting = (id) => {
-    setSettings((current) =>
-      current.map((setting) =>
-        setting.id === id ? { ...setting, enabled: !setting.enabled } : setting,
-      ),
-    );
+    setSettings((current) => {
+      const updatedSettings = current.map((setting) =>
+        setting.id === id
+          ? {
+              ...setting,
+              enabled: !setting.enabled,
+            }
+          : setting,
+      );
+
+      localStorage.setItem(
+        SETTINGS_STORAGE_KEY,
+        JSON.stringify(updatedSettings),
+      );
+
+      return updatedSettings;
+    });
   };
 
   return (
     <AppShell>
       <div className="mx-auto max-w-7xl">
-        {/* Header */}
+        {/* =================================================
+            HEADER
+        ================================================= */}
+
         <div className="mb-8">
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
@@ -205,8 +592,13 @@ export default function AlertsPage() {
           </div>
         </div>
 
-        {/* Notification summary */}
+        {/* =================================================
+            SUMMARY CARDS
+        ================================================= */}
+
         <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {/* ACTIVE OUTAGES */}
+
           <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between">
               <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-50">
@@ -218,8 +610,12 @@ export default function AlertsPage() {
 
             <p className="mt-5 text-sm text-gray-500">Active outage alerts</p>
 
-            <h2 className="mt-1 text-2xl font-bold text-gray-900">2</h2>
+            <h2 className="mt-1 text-2xl font-bold text-gray-900">
+              {outageAlertCount}
+            </h2>
           </div>
+
+          {/* RESTORATIONS */}
 
           <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between">
@@ -234,8 +630,12 @@ export default function AlertsPage() {
 
             <p className="mt-5 text-sm text-gray-500">Recent restorations</p>
 
-            <h2 className="mt-1 text-2xl font-bold text-gray-900">1</h2>
+            <h2 className="mt-1 text-2xl font-bold text-gray-900">
+              {restorationCount}
+            </h2>
           </div>
+
+          {/* TOTAL */}
 
           <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between">
@@ -256,11 +656,18 @@ export default function AlertsPage() {
           </div>
         </section>
 
-        {/* Main content */}
+        {/* =================================================
+            MAIN CONTENT
+        ================================================= */}
+
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-          {/* Notifications list */}
+          {/* =================================================
+              NOTIFICATIONS
+          ================================================= */}
+
           <div className="rounded-2xl border border-gray-100 bg-white shadow-sm xl:col-span-2">
-            {/* List header */}
+            {/* HEADER */}
+
             <div className="flex flex-col justify-between gap-3 border-b border-gray-100 p-5 sm:flex-row sm:items-center">
               <div>
                 <h2 className="text-lg font-bold text-gray-900">
@@ -274,6 +681,7 @@ export default function AlertsPage() {
 
               {unreadCount > 0 && (
                 <button
+                  type="button"
                   onClick={markAllAsRead}
                   className="flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition hover:border-purple-200 hover:bg-purple-50 hover:text-purple-600"
                 >
@@ -283,7 +691,8 @@ export default function AlertsPage() {
               )}
             </div>
 
-            {/* Notifications */}
+            {/* EMPTY STATE */}
+
             {notifications.length === 0 ? (
               <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
                 <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-gray-100">
@@ -308,7 +717,8 @@ export default function AlertsPage() {
                     } hover:bg-gray-50`}
                   >
                     <div className="flex items-start gap-4">
-                      {/* Icon */}
+                      {/* ICON */}
+
                       <div
                         className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${notificationBackground(
                           notification.type,
@@ -317,7 +727,8 @@ export default function AlertsPage() {
                         <NotificationIcon type={notification.type} />
                       </div>
 
-                      {/* Content */}
+                      {/* CONTENT */}
+
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-col justify-between gap-2 sm:flex-row">
                           <div>
@@ -341,16 +752,19 @@ export default function AlertsPage() {
                           </span>
                         </div>
 
-                        {/* Meta */}
+                        {/* META */}
+
                         <div className="mt-4 flex flex-wrap items-center gap-4">
                           <span className="flex items-center gap-1.5 text-xs text-gray-400">
                             <MapPin className="h-3.5 w-3.5" />
+
                             {notification.location}
                           </span>
 
                           <div className="ml-auto flex items-center gap-2">
                             {notification.unread && (
                               <button
+                                type="button"
                                 onClick={() => markAsRead(notification.id)}
                                 className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-purple-600 hover:bg-purple-50"
                               >
@@ -360,6 +774,7 @@ export default function AlertsPage() {
                             )}
 
                             <button
+                              type="button"
                               onClick={() =>
                                 removeNotification(notification.id)
                               }
@@ -378,7 +793,10 @@ export default function AlertsPage() {
             )}
           </div>
 
-          {/* Notification settings */}
+          {/* =================================================
+              NOTIFICATION SETTINGS
+          ================================================= */}
+
           <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
             <div className="mb-6">
               <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-purple-50">
@@ -428,7 +846,8 @@ export default function AlertsPage() {
               ))}
             </div>
 
-            {/* Location alert */}
+            {/* LOCATION */}
+
             <div className="mt-7 rounded-2xl bg-gray-50 p-4">
               <div className="flex items-start gap-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white">
@@ -451,7 +870,8 @@ export default function AlertsPage() {
               </div>
             </div>
 
-            {/* Status */}
+            {/* STATUS */}
+
             <div className="mt-4 flex items-center gap-2 rounded-xl border border-green-100 bg-green-50 px-4 py-3">
               <span className="h-2 w-2 rounded-full bg-green-500" />
 
@@ -461,6 +881,34 @@ export default function AlertsPage() {
             </div>
           </div>
         </section>
+
+        {/* =================================================
+            DATA CONNECTION INFO
+        ================================================= */}
+
+        <div className="mt-6 rounded-2xl border border-purple-100 bg-purple-50 p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white">
+              <Clock3 className="h-5 w-5 text-purple-600" />
+            </div>
+
+            <div>
+              <p className="text-sm font-semibold text-gray-900">
+                Live report connection
+              </p>
+
+              <p className="mt-1 text-sm leading-6 text-gray-500">
+                Alerts are connected to the community reports currently stored
+                in your NEPA Tracker.
+              </p>
+
+              <p className="mt-1 text-xs text-gray-400">
+                {reports.length} report
+                {reports.length === 1 ? "" : "s"} currently available.
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     </AppShell>
   );

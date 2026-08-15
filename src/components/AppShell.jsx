@@ -2,10 +2,23 @@
 
 import { useState } from "react";
 import { Menu, Bell, Search } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+
 import Sidebar from "./Sidebar";
 
 export default function AppShell({ children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const goToNotifications = () => {
+    router.push("/alerts");
+  };
+
+  const goToReports = () => {
+    router.push("/reports");
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -21,7 +34,7 @@ export default function AppShell({ children }) {
               <button
                 type="button"
                 onClick={() => setMobileOpen(true)}
-                className="rounded-xl p-2 text-gray-500 hover:bg-gray-100 lg:hidden"
+                className="rounded-xl p-2 text-gray-500 transition hover:bg-gray-100 hover:text-purple-600 lg:hidden"
                 aria-label="Open menu"
               >
                 <Menu className="h-6 w-6" />
@@ -43,8 +56,14 @@ export default function AppShell({ children }) {
               {/* Search */}
               <button
                 type="button"
-                className="hidden rounded-xl p-2.5 text-gray-500 hover:bg-gray-100 sm:block"
-                aria-label="Search"
+                onClick={goToReports}
+                className={`hidden rounded-xl p-2.5 transition sm:block ${
+                  pathname === "/reports"
+                    ? "bg-purple-50 text-purple-600"
+                    : "text-gray-500 hover:bg-gray-100 hover:text-purple-600"
+                }`}
+                aria-label="Search reports"
+                title="Search reports"
               >
                 <Search className="h-5 w-5" />
               </button>
@@ -52,16 +71,26 @@ export default function AppShell({ children }) {
               {/* Notification */}
               <button
                 type="button"
-                className="relative rounded-xl p-2.5 text-gray-500 hover:bg-gray-100"
+                onClick={goToNotifications}
+                className={`relative rounded-xl p-2.5 transition ${
+                  pathname === "/alerts"
+                    ? "bg-purple-50 text-purple-600"
+                    : "text-gray-500 hover:bg-gray-100 hover:text-purple-600"
+                }`}
                 aria-label="Notifications"
+                title="Notifications"
               >
                 <Bell className="h-5 w-5" />
 
+                {/* Notification indicator */}
                 <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-red-500" />
               </button>
 
               {/* Avatar */}
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-purple-600 to-indigo-500 text-sm font-bold text-white">
+              <div
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-purple-600 to-indigo-500 text-sm font-bold text-white"
+                title="Profile"
+              >
                 Y
               </div>
             </div>
